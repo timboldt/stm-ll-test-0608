@@ -1,28 +1,28 @@
 /* USER CODE BEGIN Header */
 /**
-  ******************************************************************************
-  * @file           : main.c
-  * @brief          : Main program body
-  ******************************************************************************
-  * @attention
-  *
-  * <h2><center>&copy; Copyright (c) 2019 STMicroelectronics.
-  * All rights reserved.</center></h2>
-  *
-  * This software component is licensed by ST under BSD 3-Clause license,
-  * the "License"; You may not use this file except in compliance with the
-  * License. You may obtain a copy of the License at:
-  *                        opensource.org/licenses/BSD-3-Clause
-  *
-  ******************************************************************************
-  */
+ ******************************************************************************
+ * @file           : main.c
+ * @brief          : Main program body
+ ******************************************************************************
+ * @attention
+ *
+ * <h2><center>&copy; Copyright (c) 2019 STMicroelectronics.
+ * All rights reserved.</center></h2>
+ *
+ * This software component is licensed by ST under BSD 3-Clause license,
+ * the "License"; You may not use this file except in compliance with the
+ * License. You may obtain a copy of the License at:
+ *                        opensource.org/licenses/BSD-3-Clause
+ *
+ ******************************************************************************
+ */
 /* USER CODE END Header */
 
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
+#include "gpio.h"
 #include "i2c.h"
 #include "usart.h"
-#include "gpio.h"
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
@@ -118,18 +118,18 @@ void SystemClock_Config(void);
 /* USER CODE END 0 */
 
 /**
-  * @brief  The application entry point.
-  * @retval int
-  */
-int main(void)
-{
+ * @brief  The application entry point.
+ * @retval int
+ */
+int main(void) {
   /* USER CODE BEGIN 1 */
 
   /* USER CODE END 1 */
 
   /* MCU Configuration--------------------------------------------------------*/
 
-  /* Reset of all peripherals, Initializes the Flash interface and the Systick. */
+  /* Reset of all peripherals, Initializes the Flash interface and the Systick.
+   */
   HAL_Init();
 
   /* USER CODE BEGIN Init */
@@ -150,44 +150,110 @@ int main(void)
   /* USER CODE BEGIN 2 */
   HAL_StatusTypeDef status;
 
-  // Display off
+  // Init display.
   do {
-    unsigned char data[] = {0x00, 
-    SSD1306_DISPLAYOFF,
-    SSD1306_SETDISPLAYCLOCKDIV, 0x80,  // the suggested ratio 0x80
-    SSD1306_SETMULTIPLEX, 0x3F,        // ratio 64
-    SSD1306_SETDISPLAYOFFSET, 0x0,     // no offset
-    SSD1306_SETSTARTLINE | 0x0,        // line #0
-    SSD1306_CHARGEPUMP, 0x14,          // internal vcc
-    SSD1306_MEMORYMODE, 0x02,          // page mode
-    SSD1306_SEGREMAP | 0x1,            // column 127 mapped to SEG0
-    SSD1306_COMSCANDEC,                // column scan direction reversed
-    SSD1306_SETCOMPINS, 0x12,          // alt COM pins, disable remap
-    SSD1306_SETCONTRAST, 0x7F,         // contrast level 127
-    SSD1306_SETPRECHARGE, 0xF1,        // pre-charge period (1, 15)
-    SSD1306_SETVCOMDETECT, 0x40,       // vcomh regulator level
-    SSD1306_DISPLAYALLON_RESUME,
-    SSD1306_NORMALDISPLAY,
-    //SSD1306_DISPLAYALLON,
-    SSD1306_DISPLAYON};
-    status = HAL_I2C_Master_Transmit(&hi2c1, 0x3c<<1, data, sizeof(data), 100);
+    unsigned char data[] = {
+        0x00, SSD1306_DISPLAYOFF, SSD1306_SETDISPLAYCLOCKDIV,
+        0x80,                           // the suggested ratio 0x80
+        SSD1306_SETMULTIPLEX, 0x3F,     // ratio 64
+        SSD1306_SETDISPLAYOFFSET, 0x0,  // no offset
+        SSD1306_SETSTARTLINE | 0x0,     // line #0
+        SSD1306_CHARGEPUMP, 0x14,       // internal vcc
+        SSD1306_MEMORYMODE, 0x00,  // wrapping mode
+        SSD1306_SEGREMAP | 0x1,         // column 127 mapped to SEG0
+        SSD1306_COMSCANDEC,             // column scan direction reversed
+        SSD1306_SETCOMPINS, 0x12,       // alt COM pins, disable remap
+        SSD1306_SETCONTRAST, 0x7F,      // contrast level 127
+        SSD1306_SETPRECHARGE, 0xF1,     // pre-charge period (1, 15)
+        SSD1306_SETVCOMDETECT, 0x40,    // vcomh regulator level
+        SSD1306_DISPLAYALLON_RESUME,
+        SSD1306_NORMALDISPLAY};
+    status =
+        HAL_I2C_Master_Transmit(&hi2c1, 0x3c << 1, data, sizeof(data), 100);
+  } while (status != HAL_OK);
+
+  // Blank the display.
+  // This assumes wrapping mode right now.
+  for (int i = 0; i < 16; i++) {
+    do {
+      unsigned char data[65] = {0x40, 0x00,};
+      status =
+          HAL_I2C_Master_Transmit(&hi2c1, 0x3c << 1, data, sizeof(data), 100);
+    } while (status != HAL_OK);
+  }
+
+  // Set non-wrapping mode and put cursor back at top.
+  do {
+    unsigned char data[] = {
+        0x00,
+        SSD1306_MEMORYMODE, 0x02,       // page mode
+        SSD1306_DISPLAYON};
+    status =
+        HAL_I2C_Master_Transmit(&hi2c1, 0x3c << 1, data, sizeof(data), 100);
   } while (status != HAL_OK);
 
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
-    unsigned char data[] = {0x00,  SSD1306_DISPLAYALLON_RESUME};
-  while (1)
-  {
+  unsigned char page = 0;
+  unsigned char col = 0;
+  while (1) {
     LL_GPIO_TogglePin(LD3_GPIO_Port, LD3_Pin);
+    unsigned char cmd[] = {0x00, 
+      SSD1306_SETSTARTPAGE | (page & 0x07),
+      SSD1306_SETLOWCOLUMN | (col & 0x0f),
+      SSD1306_SETHIGHCOLUMN | (col >> 4)
+    };
+    // unsigned char text[] = {0x40, 
+    // 0x7F, 0x49, 0x49, 0x49, 0x41, 0x00, 0x00, 0x00,
+    // 0x00, 0x41, 0x7F, 0x40, 0x00, 0x00, 0x00, 0x00,
+    // 0x00, 0x44, 0x7D, 0x40, 0x00, 0x00, 0x00, 0x00,
+    // 0x20, 0x40, 0x44, 0x3D, 0x00, 0x00, 0x00, 0x00,
+    // 0x20, 0x54, 0x54, 0x54, 0x78, 0x00, 0x00, 0x00,
+    // 0x7F, 0x08, 0x04, 0x04, 0x78, 0x00, 0x00, 0x00,
+    // 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    // 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    // 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    // 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    // 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    // 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    // 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    // 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    // 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    // 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
+    // };
+    unsigned char text[] = {0x40, 
+    0x0C, 0x1E, 0x3E, 0x7C, 0x7C, 0x3E, 0x1E, 0x0C,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x7E, 0x11, 0x11, 0x11, 0x7E, 0x00, 0x00, 0x00,
+    0x7C, 0x08, 0x04, 0x04, 0x08, 0x00, 0x00, 0x00,
+    0x00, 0x44, 0x7D, 0x40, 0x00, 0x00, 0x00, 0x00,
+    0x38, 0x54, 0x54, 0x54, 0x18, 0x00, 0x00, 0x00,
+    0x00, 0x41, 0x7F, 0x40, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x41, 0x7F, 0x40, 0x00, 0x00, 0x00, 0x00,
+    0x38, 0x54, 0x54, 0x54, 0x18, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x0C, 0x1E, 0x3E, 0x7C, 0x7C, 0x3E, 0x1E, 0x0C,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
+    };
+    do {
+      status =
+          HAL_I2C_Master_Transmit(&hi2c1, 0x3c << 1, cmd, sizeof(cmd), 100);
+    } while (status != HAL_OK);
+    do {
+      status =
+          HAL_I2C_Master_Transmit(&hi2c1, 0x3c << 1, text, sizeof(text), 100);
+    } while (status != HAL_OK);
+    page += 2;
+    col += 10;
     for (int i = 0; i < 1000000; i++) {
-      
     }
-  do {
-    status = HAL_I2C_Master_Transmit(&hi2c1, 0x3c<<1, data, sizeof(data), 100);
-  } while (status != HAL_OK);
-  data[1] ^= 0x01;
+    //data[1] ^= 0x01;
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
@@ -196,32 +262,26 @@ int main(void)
 }
 
 /**
-  * @brief System Clock Configuration
-  * @retval None
-  */
-void SystemClock_Config(void)
-{
+ * @brief System Clock Configuration
+ * @retval None
+ */
+void SystemClock_Config(void) {
   LL_FLASH_SetLatency(LL_FLASH_LATENCY_0);
 
-  if(LL_FLASH_GetLatency() != LL_FLASH_LATENCY_0)
-  {
-  Error_Handler();  
+  if (LL_FLASH_GetLatency() != LL_FLASH_LATENCY_0) {
+    Error_Handler();
   }
   LL_PWR_SetRegulVoltageScaling(LL_PWR_REGU_VOLTAGE_SCALE1);
   LL_RCC_HSI_Enable();
 
-   /* Wait till HSI is ready */
-  while(LL_RCC_HSI_IsReady() != 1)
-  {
-    
+  /* Wait till HSI is ready */
+  while (LL_RCC_HSI_IsReady() != 1) {
   }
   LL_RCC_HSI_SetCalibTrimming(16);
   LL_RCC_SetSysClkSource(LL_RCC_SYS_CLKSOURCE_HSI);
 
-   /* Wait till System clock is ready */
-  while(LL_RCC_GetSysClkSource() != LL_RCC_SYS_CLKSOURCE_STATUS_HSI)
-  {
-  
+  /* Wait till System clock is ready */
+  while (LL_RCC_GetSysClkSource() != LL_RCC_SYS_CLKSOURCE_STATUS_HSI) {
   }
   LL_RCC_SetAHBPrescaler(LL_RCC_SYSCLK_DIV_1);
   LL_RCC_SetAPB1Prescaler(LL_RCC_APB1_DIV_1);
@@ -238,30 +298,30 @@ void SystemClock_Config(void)
 /* USER CODE END 4 */
 
 /**
-  * @brief  This function is executed in case of error occurrence.
-  * @retval None
-  */
-void Error_Handler(void)
-{
+ * @brief  This function is executed in case of error occurrence.
+ * @retval None
+ */
+void Error_Handler(void) {
   /* USER CODE BEGIN Error_Handler_Debug */
   /* User can add his own implementation to report the HAL error return state */
 
   /* USER CODE END Error_Handler_Debug */
 }
 
-#ifdef  USE_FULL_ASSERT
+#ifdef USE_FULL_ASSERT
 /**
-  * @brief  Reports the name of the source file and the source line number
-  *         where the assert_param error has occurred.
-  * @param  file: pointer to the source file name
-  * @param  line: assert_param error line source number
-  * @retval None
-  */
-void assert_failed(char *file, uint32_t line)
-{ 
+ * @brief  Reports the name of the source file and the source line number
+ *         where the assert_param error has occurred.
+ * @param  file: pointer to the source file name
+ * @param  line: assert_param error line source number
+ * @retval None
+ */
+void assert_failed(char *file, uint32_t line) {
   /* USER CODE BEGIN 6 */
-  /* User can add his own implementation to report the file name and line number,
-     tex: printf("Wrong parameters value: file %s on line %d\r\n", file, line) */
+  /* User can add his own implementation to report the file name and line
+     number,
+     tex: printf("Wrong parameters value: file %s on line %d\r\n", file, line)
+   */
   /* USER CODE END 6 */
 }
 #endif /* USE_FULL_ASSERT */
